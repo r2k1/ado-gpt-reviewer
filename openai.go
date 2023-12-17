@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/rotisserie/eris"
@@ -21,14 +22,35 @@ func NewOpenAIFromENV() *OpenAI {
 }
 
 // TODO: think how to chunk large diff into smaller pieces
-func (o *OpenAI) Review(ctx context.Context, diff string) (string, error) {
+
+type ReviewPRRequest struct {
+	Title       string
+	Description string
+	Diff        string
+}
+
+func (r ReviewPRRequest) ToMessage() azopenai.ChatRequestMessageClassification {
+	return &azopenai.ChatRequestUserMessage{
+		Content: azopenai.NewChatRequestUserMessageContent(fmt.Sprintf("Title: %s, Description: %s, Git Diff: %s", r.Title, r.Description, r.Diff)),
+	}
+}
+
+func (o *OpenAI) Review(ctx context.Context, req ReviewPRRequest) (string, error) {
 	resp, err := o.internal.GetChatCompletions(ctx, azopenai.ChatCompletionsOptions{
 		DeploymentName: Ptr(cfg.AzureOpenAIDeploymentName),
 		Messages: []azopenai.ChatRequestMessageClassification{
 			&azopenai.ChatRequestSystemMessage{
-				// TODO: find a better prompt
-				Content: Ptr(`You are senior software engineer. Your job is to review pull request. User is going to submit you a git diff. You are going to review it. I'll give yoo 200$ for the best review.'`),
-			}, &azopenai.ChatRequestUserMessage{Content: azopenai.NewChatRequestUserMessageContent(diff)},
+				Content: Ptr(`You are PR-Reviewer, a language model designed to review a Git Pull Request (PR).
+Your task is to provide constructive and concise feedback for the PR, and also provide meaningful code suggestions.
+The review should focus on new code added in the PR diff (lines starting with '+')
+
+Code suggestions guidelines:
+- Provide up to 5 code suggestions. Try to provide diverse and insightful suggestions.
+- Focus on important suggestions like fixing code problems, issues and bugs. As a second priority, provide suggestions for meaningful code improvements, like performance, vulnerability, modularity, and best practices.
+- Avoid making suggestions that have already been implemented in the PR code. For example, if you want to add logs, or change a variable to const, or anything else, make sure it isn't already in the PR code.
+- Don't suggest to add comments.
+- Suggestions should focus on the new code added in the PR diff (lines starting with '+')`),
+			}, req.ToMessage(),
 		},
 	}, nil)
 	if err != nil {

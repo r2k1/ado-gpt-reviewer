@@ -8,6 +8,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
+	"strings"
 )
 
 type Config struct {
@@ -18,6 +19,7 @@ type Config struct {
 	ADORepositoryName         string `env:"ADO_REPOSITORY_ID,required"`
 	ADOProjectName            string `env:"ADO_PROJECT_NAME,required"`
 	GitRepo                   string `env:"GIT_REPO,required"`
+	GitRepoPath               string `env:"GIT_REPO_PATH,required" envDefault:"/tmp/repo"`
 	AzureOpenAIEndpoint       string `env:"AZURE_OPENAI_ENDPOINT,required"`
 	AzureOpenAIDeploymentName string `env:"AZURE_OPENAI_DEPLOYMENT_NAME,required"`
 	AzureOpenAIKey            string `env:"AZURE_OPENAI_KEY,required"`
@@ -58,41 +60,54 @@ func do(ctx context.Context) {
 
 	// TODO: skip already reviewed PRs, maybe based on list of comments? Should review comments contain a marker?
 	for _, pr := range *prs {
-		sourceId := *pr.LastMergeSourceCommit.CommitId
-		dff := GetDiff(sourceId)
+		// pr contains truncated description, fetch full PR details
+		prDetails, err := gitClient.GetPullRequestById(ctx, git.GetPullRequestByIdArgs{
+			PullRequestId: pr.PullRequestId,
+			Project:       Ptr(cfg.ADOProjectName),
+		})
+		checkErr(err)
+
+		sourceSHA := *pr.LastMergeSourceCommit.CommitId
+		target := strings.TrimPrefix(*prDetails.TargetRefName, "refs/heads/")
+		diff := GetDiff(target, sourceSHA)
 		ai := NewOpenAIFromENV()
-		review, err := ai.Review(ctx, dff)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		fmt.Println(review)
+		comment := ReviewToPRComment(ai.Review(ctx, ReviewPRRequest{
+			Title:       *prDetails.Title,
+			Description: *prDetails.Description,
+			Diff:        diff,
+		}))
+		fmt.Println("===================================")
+		fmt.Println(comment)
 		// Disable during testing, so we don't spam PRs
-		//_, err = gitClient.CreateThread(ctx, git.CreateThreadArgs{
-		//	RepositoryId:  Ptr(cfg.ADORepositoryName),
-		//	PullRequestId: pr.PullRequestId,
-		//	Project:       Ptr(cfg.ADOProjectName),
-		//	CommentThread: ReviewToPRComment(review),
-		//})
-		//checkErr(err)
+		_, err = gitClient.CreateThread(ctx, git.CreateThreadArgs{
+			RepositoryId:  Ptr(cfg.ADORepositoryName),
+			PullRequestId: pr.PullRequestId,
+			Project:       Ptr(cfg.ADOProjectName),
+			CommentThread: &git.GitPullRequestCommentThread{
+				Comments: &[]git.Comment{
+					{
+						Content: &comment,
+					},
+				},
+			},
+		})
+		checkErr(err)
 	}
 }
 
-func ReviewToPRComment(review string) *git.GitPullRequestCommentThread {
-	content := fmt.Sprintf("WARNING: GPT AUTO REVIEWER TEST\n\nIt's automatic review, don't take it serious\n\n%s", review)
-	return &git.GitPullRequestCommentThread{
-		Comments: &[]git.Comment{
-			{
-				Content: &content,
-			},
-		},
+func ReviewToPRComment(review string, err error) string {
+	if err != nil {
+		return fmt.Sprintf("ERROR: %s", err)
 	}
+	// TODO: format the message
+	return fmt.Sprintf("WARNING: GPT AUTO REVIEWER TEST\n\nIt's automatic review, don't take it serious\n\n%s", review)
 }
 
 func Ptr[T any](value T) *T {
 	return &value
 }
 
+// TODO: delete the function
 func checkErr(err error) {
 	if err != nil {
 		panic(err)
