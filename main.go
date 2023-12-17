@@ -44,7 +44,7 @@ func do(ctx context.Context) error {
 	var cfg Config
 	err := env.Parse(&cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing config: %w", err)
 	}
 	reviewer, err := NewReviewer(ctx, cfg)
 	if err != nil {
@@ -60,20 +60,20 @@ func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 	// Create a client to interact with the Core area
 	gitClient, err := git.NewClient(ctx, connection)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating git client: %w", err)
 	}
 
 	keyCredential := azcore.NewKeyCredential(cfg.AzureOpenAIKey)
 	client, err := azopenai.NewClientWithKeyCredential(cfg.AzureOpenAIEndpoint, keyCredential, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating openai client: %w", err)
 	}
 
 	var reviewerUUID *uuid.UUID
 	if cfg.UserUUID != "" {
 		userUUID, err := uuid.Parse(cfg.UserUUID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parsing user uuid: %w", err)
 		}
 		reviewerUUID = &userUUID
 	}
@@ -159,7 +159,7 @@ func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 			},
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting PRs: %w", err)
 		}
 		if batch == nil {
 			break
@@ -185,7 +185,7 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 		Project:       r.adoProjectName,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("getting PR details: %w", err)
 	}
 
 	commitID := prDetails.LastMergeSourceCommit.CommitId
@@ -218,7 +218,7 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 		},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("creating comment: %w", err)
 	}
 	return nil
 }
@@ -239,7 +239,7 @@ func (r *Reviewer) threadID(ctx context.Context, prID *int) (*int, error) {
 		Project:       r.adoProjectName,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting threads: %w", err)
 	}
 	if threads == nil {
 		return nil, notFound

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ type Git struct {
 
 func (g *Git) Sync() error {
 	if err := os.MkdirAll(g.Dir, 0755); err != nil {
-		return fmt.Errorf("error creating directory: %v", err)
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 	empty, err := isDirEmpty(g.Dir)
 	if err != nil {
@@ -61,16 +62,18 @@ func (g *Git) Diff(targetBranch, sourceSHA string) (string, error) {
 func isDirEmpty(dirPath string) (bool, error) {
 	f, err := os.Open(dirPath)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("error opening directory: %w", err)
 	}
 	defer f.Close()
 
 	// Read the first entry in the directory
 	_, err = f.Readdir(1)
-
 	// If the folder is empty, Readdir returns io.EOF
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return true, nil
 	}
-	return false, err
+	if err != nil {
+		return false, fmt.Errorf("error reading directory: %w", err)
+	}
+	return false, nil
 }

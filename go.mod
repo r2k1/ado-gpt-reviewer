@@ -9,7 +9,6 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
-	github.com/rotisserie/eris v0.5.4
 )
 
 require (
