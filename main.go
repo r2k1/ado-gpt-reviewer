@@ -17,17 +17,17 @@ import (
 )
 
 type Config struct {
-	OrganizationURL           string `env:"ORGANIZATION_URL,required"`
-	User                      string `env:"USER,required"`
-	UserUUID                  string `env:"USER_UUID,required"`
-	PersonalAccessToken       string `env:"PERSONAL_ACCESS_TOKEN,required"`
-	ADORepositoryName         string `env:"ADO_REPOSITORY_ID,required"`
+	ADOAccessToken            string `env:"ADO_ACCESS_TOKEN,required"`
+	ADOOrganizationURL        string `env:"ADO_ORGANIZATION_URL,required"`
 	ADOProjectName            string `env:"ADO_PROJECT_NAME,required"`
+	ADORepositoryName         string `env:"ADO_REPOSITORY_ID,required"`
+	ADOUser                   string `env:"ADO_USER,required"`
+	ADOUserUUID               string `env:"ADO_USER_UUID,required"`
+	AzureOpenAIDeploymentName string `env:"AZURE_OPENAI_DEPLOYMENT_NAME,required"`
+	AzureOpenAIEndpoint       string `env:"AZURE_OPENAI_ENDPOINT,required"`
+	AzureOpenAIKey            string `env:"AZURE_OPENAI_KEY,required"`
 	GitRepo                   string `env:"GIT_REPO,required"`
 	GitRepoPath               string `env:"GIT_REPO_PATH,required" envDefault:"/tmp/repo"`
-	AzureOpenAIEndpoint       string `env:"AZURE_OPENAI_ENDPOINT,required"`
-	AzureOpenAIDeploymentName string `env:"AZURE_OPENAI_DEPLOYMENT_NAME,required"`
-	AzureOpenAIKey            string `env:"AZURE_OPENAI_KEY,required"`
 }
 
 func main() {
@@ -55,7 +55,7 @@ func do(ctx context.Context) error {
 
 func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 	// Create a connection to your organization
-	connection := azuredevops.NewPatConnection(cfg.OrganizationURL, cfg.PersonalAccessToken)
+	connection := azuredevops.NewPatConnection(cfg.ADOOrganizationURL, cfg.ADOAccessToken)
 
 	// Create a client to interact with the Core area
 	gitClient, err := git.NewClient(ctx, connection)
@@ -70,8 +70,8 @@ func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 	}
 
 	var reviewerUUID *uuid.UUID
-	if cfg.UserUUID != "" {
-		userUUID, err := uuid.Parse(cfg.UserUUID)
+	if cfg.ADOUserUUID != "" {
+		userUUID, err := uuid.Parse(cfg.ADOUserUUID)
 		if err != nil {
 			return nil, fmt.Errorf("parsing user uuid: %w", err)
 		}
@@ -85,7 +85,7 @@ func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 		},
 		ado: gitClient,
 		git: &Git{
-			RepoURL: fmt.Sprintf("https://%s:%s@%s", cfg.User, cfg.PersonalAccessToken, cfg.GitRepo),
+			RepoURL: fmt.Sprintf("https://%s:%s@%s", cfg.ADOUser, cfg.ADOAccessToken, cfg.GitRepo),
 			Dir:     cfg.GitRepoPath,
 		},
 		adoRepositoryName: Ptr(cfg.ADORepositoryName),
