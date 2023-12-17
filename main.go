@@ -127,6 +127,9 @@ func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 		if err != nil {
 			return nil, err
 		}
+		if batch == nil {
+			break
+		}
 		for _, pr := range *batch {
 			// ignore stale PRs
 			if time.Now().Sub(pr.CreationDate.Time) > 180*24*time.Hour {
@@ -151,15 +154,21 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 		return err
 	}
 
-	sourceSHA := *prDetails.LastMergeSourceCommit.CommitId
+	commitID := prDetails.LastMergeSourceCommit.CommitId
+	if commitID == nil {
+		return fmt.Errorf("commit id is nil")
+	}
+	if prDetails.TargetRefName == nil {
+		return fmt.Errorf("target ref name is nil")
+	}
 	target := strings.TrimPrefix(*prDetails.TargetRefName, "refs/heads/")
-	diff, err := GetDiff(target, sourceSHA)
+	diff, err := GetDiff(target, *commitID)
 	if err != nil {
 		return err
 	}
 	review, err := r.ai.Review(ctx, ReviewPRRequest{
-		Title:       *prDetails.Title,
-		Description: *prDetails.Description,
+		Title:       PtrToString(prDetails.Title),
+		Description: PtrToString(prDetails.Description),
 		Diff:        diff,
 	})
 	comment := ReviewToPRComment(review, err)
@@ -181,6 +190,13 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 
 var notFound = errors.New("not found")
 
+func PtrToString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}
+
 func (r *Reviewer) threadID(ctx context.Context, prID *int) (*int, error) {
 	threads, err := r.ado.GetThreads(ctx, git.GetThreadsArgs{
 		RepositoryId:  Ptr(cfg.ADORepositoryName),
@@ -189,6 +205,9 @@ func (r *Reviewer) threadID(ctx context.Context, prID *int) (*int, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if threads == nil {
+		return nil, notFound
 	}
 	for _, thread := range *threads {
 		if thread.Comments == nil {
