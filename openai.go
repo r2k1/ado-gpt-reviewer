@@ -12,13 +12,12 @@ type OpenAI struct {
 	internal *azopenai.Client
 }
 
-func NewOpenAIFromENV() *OpenAI {
+func NewOpenAIFromENV() (*OpenAI, error) {
 	keyCredential := azcore.NewKeyCredential(cfg.AzureOpenAIKey)
 	client, err := azopenai.NewClientWithKeyCredential(cfg.AzureOpenAIEndpoint, keyCredential, nil)
-	checkErr(err)
 	return &OpenAI{
 		internal: client,
-	}
+	}, err
 }
 
 // TODO: think how to chunk large diff into smaller pieces

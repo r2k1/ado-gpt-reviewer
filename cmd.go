@@ -53,20 +53,10 @@ func Exec(opts Cmd) error {
 	return nil
 }
 
-// Same as MustExec but returns stdout content
-func MustExecOut(opts Cmd) string {
+// ExecOut is same as Exec but returns stdout content
+func ExecOut(opts Cmd) (string, error) {
 	var out bytes.Buffer
 	opts.Stdout = &out
 	err := Exec(opts)
-	if err != nil {
-		panic(err)
-	}
-	return out.String()
-}
-
-func MustExec(opts Cmd) {
-	err := Exec(opts)
-	if err != nil {
-		panic(err)
-	}
+	return out.String(), err
 }

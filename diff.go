@@ -7,39 +7,49 @@ import (
 	"strings"
 )
 
-func GitClone() {
-	// create tmp folder
-	_ = os.Mkdir(cfg.GitRepoPath, 0755)
+func GitSync() error {
+	if err := os.MkdirAll(cfg.GitRepoPath, 0755); err != nil {
+		return fmt.Errorf("error creating directory: %v", err)
+	}
 	empty, err := IsDirEmpty(cfg.GitRepoPath)
-	checkErr(err)
+	if err != nil {
+		return err
+	}
 	if empty {
-		// TODO: this operation is slooow it downloads like 2 gigs, maybe there is a way to optimize it?
 		repo := fmt.Sprintf("https://%s:%s@%s", cfg.User, cfg.PersonalAccessToken, cfg.GitRepo)
-		MustExecOut(Cmd{
+		err := Exec(Cmd{
 			Dir:  cfg.GitRepoPath,
 			Name: "git",
 			Args: []string{"clone", repo, "."},
 		})
+		if err != nil {
+			return err
+		}
 	}
 
-	MustExec(Cmd{
+	return Exec(Cmd{
 		Dir:  cfg.GitRepoPath,
 		Name: "git",
 		Args: []string{"fetch"},
 	})
 }
 
-// TODO: add support for non-master branch
-func GetDiff(targetBranch, sourceSHA string) string {
-	GitClone()
+func GetDiff(targetBranch, sourceSHA string) (string, error) {
+	if err := GitSync(); err != nil {
+		return "", err
+	}
+
 	targetBranch = "origin/" + targetBranch
-	mergeBaseSha := MustExecOut(Cmd{
+	mergeBaseSha, err := ExecOut(Cmd{
 		Dir:  cfg.GitRepoPath,
 		Name: "git",
 		Args: []string{"merge-base", targetBranch, sourceSHA},
 	})
+	if err != nil {
+		return "", err
+	}
 	mergeBaseSha = strings.TrimSpace(mergeBaseSha)
-	return MustExecOut(Cmd{
+	return ExecOut(Cmd{
 		Dir:  cfg.GitRepoPath,
 		Name: "git",
 		Args: []string{"diff", mergeBaseSha + ".." + sourceSHA},
