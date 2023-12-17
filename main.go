@@ -94,13 +94,6 @@ func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 	}, nil
 }
 
-func ReviewToPRComment(review string, err error) string {
-	if err != nil {
-		return fmt.Sprintf("ERROR: %s", err)
-	}
-	return fmt.Sprintf("WARNING: GPT AUTO REVIEWER TEST\n\nIt's automatic review, don't take it serious\n\n%s", review)
-}
-
 func Ptr[T any](value T) *T {
 	return &value
 }
@@ -126,7 +119,8 @@ func (r *Reviewer) ReviewAll(ctx context.Context) error {
 		return nil
 	}
 	for _, pr := range prs {
-		tid, err := r.threadID(ctx, pr.PullRequestId)
+		// get id of a thread to post a comment
+		tid, err := r.reviewThreadID(ctx, pr.PullRequestId)
 		if errors.Is(err, notFound) {
 			continue
 		}
@@ -144,6 +138,7 @@ func (r *Reviewer) ReviewAll(ctx context.Context) error {
 	return nil
 }
 
+// fetchPRs returns all active PRs for a reviewer
 func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 	prs := make([]git.GitPullRequest, 0)
 	// we are doing something wrong if we have more than 10000 PRs
@@ -179,6 +174,7 @@ func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 	return prs, nil
 }
 
+// reviewPR posts a review comment to a PR thread
 func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error {
 	prDetails, err := r.ado.GetPullRequestById(ctx, git.GetPullRequestByIdArgs{
 		PullRequestId: prID,
@@ -206,7 +202,13 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 		Description: PtrToString(prDetails.Description),
 		Diff:        diff,
 	})
-	comment := ReviewToPRComment(review, err)
+
+	var comment string
+	if err != nil {
+		comment = fmt.Sprintf("ERROR: %s", err)
+	} else {
+		comment = fmt.Sprintf("WARNING: GPT AUTO REVIEWER TEST\n\nIt's automatic review, don't take it serious\n\n%s", review)
+	}
 
 	_, err = r.ado.CreateComment(ctx, git.CreateCommentArgs{
 		RepositoryId:  r.adoRepositoryName,
@@ -232,7 +234,9 @@ func PtrToString(ptr *string) string {
 	return *ptr
 }
 
-func (r *Reviewer) threadID(ctx context.Context, prID *int) (*int, error) {
+// reviewThreadID returns id of a thread to post a comment
+// it returns id of a first thead with a single comment "/review"
+func (r *Reviewer) reviewThreadID(ctx context.Context, prID *int) (*int, error) {
 	threads, err := r.ado.GetThreads(ctx, git.GetThreadsArgs{
 		RepositoryId:  r.adoRepositoryName,
 		PullRequestId: prID,

@@ -40,6 +40,7 @@ func (g *Git) Sync() error {
 	})
 }
 
+// Diff returns a diff similar to a pull request
 func (g *Git) Diff(targetBranch, sourceSHA string) (string, error) {
 	targetBranch = "origin/" + targetBranch
 	mergeBaseSha, err := ExecOut(Cmd{
