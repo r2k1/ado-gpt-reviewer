@@ -7,20 +7,25 @@ import (
 	"strings"
 )
 
-func GitSync() error {
-	if err := os.MkdirAll(cfg.GitRepoPath, 0755); err != nil {
+type Git struct {
+	RepoURL string
+	Dir     string
+}
+
+func (g *Git) Sync() error {
+	if err := os.MkdirAll(g.Dir, 0755); err != nil {
 		return fmt.Errorf("error creating directory: %v", err)
 	}
-	empty, err := IsDirEmpty(cfg.GitRepoPath)
+	empty, err := isDirEmpty(g.Dir)
 	if err != nil {
 		return err
 	}
 	if empty {
-		repo := fmt.Sprintf("https://%s:%s@%s", cfg.User, cfg.PersonalAccessToken, cfg.GitRepo)
 		err := Exec(Cmd{
-			Dir:  cfg.GitRepoPath,
-			Name: "git",
-			Args: []string{"clone", repo, "."},
+			Dir:     g.Dir,
+			Name:    "git",
+			NoPrint: true, // gitURL contains token, don't print it
+			Args:    []string{"clone", g.RepoURL, "."},
 		})
 		if err != nil {
 			return err
@@ -28,20 +33,16 @@ func GitSync() error {
 	}
 
 	return Exec(Cmd{
-		Dir:  cfg.GitRepoPath,
+		Dir:  g.Dir,
 		Name: "git",
 		Args: []string{"fetch"},
 	})
 }
 
-func GetDiff(targetBranch, sourceSHA string) (string, error) {
-	if err := GitSync(); err != nil {
-		return "", err
-	}
-
+func (g *Git) Diff(targetBranch, sourceSHA string) (string, error) {
 	targetBranch = "origin/" + targetBranch
 	mergeBaseSha, err := ExecOut(Cmd{
-		Dir:  cfg.GitRepoPath,
+		Dir:  g.Dir,
 		Name: "git",
 		Args: []string{"merge-base", targetBranch, sourceSHA},
 	})
@@ -50,14 +51,14 @@ func GetDiff(targetBranch, sourceSHA string) (string, error) {
 	}
 	mergeBaseSha = strings.TrimSpace(mergeBaseSha)
 	return ExecOut(Cmd{
-		Dir:  cfg.GitRepoPath,
+		Dir:  g.Dir,
 		Name: "git",
 		Args: []string{"diff", mergeBaseSha + ".." + sourceSHA},
 	})
 }
 
-// IsDirEmpty checks if a directory is empty. Returns true if the directory is empty, false otherwise.
-func IsDirEmpty(dirPath string) (bool, error) {
+// isDirEmpty checks if a directory is empty. Returns true if the directory is empty, false otherwise.
+func isDirEmpty(dirPath string) (bool, error) {
 	f, err := os.Open(dirPath)
 	if err != nil {
 		return false, err

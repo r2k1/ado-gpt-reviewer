@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/caarlos0/env/v9"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -28,9 +30,6 @@ type Config struct {
 	AzureOpenAIKey            string `env:"AZURE_OPENAI_KEY,required"`
 }
 
-// TODO: remove the global variable
-var cfg Config
-
 func main() {
 	ctx := context.TODO()
 	err := do(ctx)
@@ -42,30 +41,57 @@ func main() {
 
 func do(ctx context.Context) error {
 	_ = godotenv.Load(".env")
+	var cfg Config
 	err := env.Parse(&cfg)
 	if err != nil {
 		return err
 	}
+	reviewer, err := NewReviewer(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	return reviewer.ReviewAll(ctx)
+}
+
+func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
 	// Create a connection to your organization
 	connection := azuredevops.NewPatConnection(cfg.OrganizationURL, cfg.PersonalAccessToken)
 
 	// Create a client to interact with the Core area
 	gitClient, err := git.NewClient(ctx, connection)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	ai, err := NewOpenAIFromENV()
+	keyCredential := azcore.NewKeyCredential(cfg.AzureOpenAIKey)
+	client, err := azopenai.NewClientWithKeyCredential(cfg.AzureOpenAIEndpoint, keyCredential, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	reviewer := Reviewer{
-		ai:  ai,
+	var reviewerUUID *uuid.UUID
+	if cfg.UserUUID != "" {
+		userUUID, err := uuid.Parse(cfg.UserUUID)
+		if err != nil {
+			return nil, err
+		}
+		reviewerUUID = &userUUID
+	}
+
+	return &Reviewer{
+		ai: &OpenAI{
+			internal:       client,
+			deploymentName: cfg.AzureOpenAIDeploymentName,
+		},
 		ado: gitClient,
-	}
-	return reviewer.ReviewAll(ctx)
-
+		git: &Git{
+			RepoURL: fmt.Sprintf("https://%s:%s@%s", cfg.User, cfg.PersonalAccessToken, cfg.GitRepo),
+			Dir:     cfg.GitRepoPath,
+		},
+		adoRepositoryName: Ptr(cfg.ADORepositoryName),
+		adoProjectName:    Ptr(cfg.ADOProjectName),
+		adoReviewerUUID:   reviewerUUID,
+	}, nil
 }
 
 func ReviewToPRComment(review string, err error) string {
@@ -80,16 +106,25 @@ func Ptr[T any](value T) *T {
 }
 
 type Reviewer struct {
-	ai  *OpenAI
-	ado git.Client
+	ai                *OpenAI
+	ado               git.Client
+	git               *Git
+	adoRepositoryName *string
+	adoProjectName    *string
+	adoReviewerUUID   *uuid.UUID
 }
 
 func (r *Reviewer) ReviewAll(ctx context.Context) error {
+	if err := r.git.Sync(); err != nil {
+		return err
+	}
 	prs, err := r.fetchPRs(ctx)
 	if err != nil {
 		return err
 	}
-
+	if len(prs) == 0 {
+		return nil
+	}
 	for _, pr := range prs {
 		tid, err := r.threadID(ctx, pr.PullRequestId)
 		if errors.Is(err, notFound) {
@@ -112,16 +147,15 @@ func (r *Reviewer) ReviewAll(ctx context.Context) error {
 func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 	prs := make([]git.GitPullRequest, 0)
 	// we are doing something wrong if we have more than 10000 PRs
-	reviewerUUID := uuid.MustParse(cfg.UserUUID)
 	for skip := 0; skip <= 10000; skip += 1000 {
 		batch, err := r.ado.GetPullRequests(ctx, git.GetPullRequestsArgs{
-			RepositoryId: Ptr(cfg.ADORepositoryName),
-			Project:      Ptr(cfg.ADOProjectName),
+			RepositoryId: r.adoRepositoryName,
+			Project:      r.adoProjectName,
 			Top:          Ptr(1000), // undocumented limit
 			Skip:         Ptr(skip),
 			SearchCriteria: &git.GitPullRequestSearchCriteria{
 				Status:     &git.PullRequestStatusValues.Active,
-				ReviewerId: &reviewerUUID,
+				ReviewerId: r.adoReviewerUUID,
 			},
 		})
 		if err != nil {
@@ -148,7 +182,7 @@ func (r *Reviewer) fetchPRs(ctx context.Context) ([]git.GitPullRequest, error) {
 func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error {
 	prDetails, err := r.ado.GetPullRequestById(ctx, git.GetPullRequestByIdArgs{
 		PullRequestId: prID,
-		Project:       Ptr(cfg.ADOProjectName),
+		Project:       r.adoProjectName,
 	})
 	if err != nil {
 		return err
@@ -162,7 +196,8 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 		return fmt.Errorf("target ref name is nil")
 	}
 	target := strings.TrimPrefix(*prDetails.TargetRefName, "refs/heads/")
-	diff, err := GetDiff(target, *commitID)
+
+	diff, err := r.git.Diff(target, *commitID)
 	if err != nil {
 		return err
 	}
@@ -174,9 +209,9 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 	comment := ReviewToPRComment(review, err)
 
 	_, err = r.ado.CreateComment(ctx, git.CreateCommentArgs{
-		RepositoryId:  Ptr(cfg.ADORepositoryName),
+		RepositoryId:  r.adoRepositoryName,
 		PullRequestId: prDetails.PullRequestId,
-		Project:       Ptr(cfg.ADOProjectName),
+		Project:       r.adoProjectName,
 		ThreadId:      threadID,
 		Comment: &git.Comment{
 			Content: &comment,
@@ -199,9 +234,9 @@ func PtrToString(ptr *string) string {
 
 func (r *Reviewer) threadID(ctx context.Context, prID *int) (*int, error) {
 	threads, err := r.ado.GetThreads(ctx, git.GetThreadsArgs{
-		RepositoryId:  Ptr(cfg.ADORepositoryName),
+		RepositoryId:  r.adoRepositoryName,
 		PullRequestId: prID,
-		Project:       Ptr(cfg.ADOProjectName),
+		Project:       r.adoProjectName,
 	})
 	if err != nil {
 		return nil, err

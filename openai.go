@@ -4,24 +4,15 @@ import (
 	"context"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/rotisserie/eris"
 )
 
 type OpenAI struct {
-	internal *azopenai.Client
-}
-
-func NewOpenAIFromENV() (*OpenAI, error) {
-	keyCredential := azcore.NewKeyCredential(cfg.AzureOpenAIKey)
-	client, err := azopenai.NewClientWithKeyCredential(cfg.AzureOpenAIEndpoint, keyCredential, nil)
-	return &OpenAI{
-		internal: client,
-	}, err
+	internal       *azopenai.Client
+	deploymentName string
 }
 
 // TODO: think how to chunk large diff into smaller pieces
-
 type ReviewPRRequest struct {
 	Title       string
 	Description string
@@ -36,7 +27,7 @@ func (r ReviewPRRequest) ToMessage() azopenai.ChatRequestMessageClassification {
 
 func (o *OpenAI) Review(ctx context.Context, req ReviewPRRequest) (string, error) {
 	resp, err := o.internal.GetChatCompletions(ctx, azopenai.ChatCompletionsOptions{
-		DeploymentName: Ptr(cfg.AzureOpenAIDeploymentName),
+		DeploymentName: Ptr(o.deploymentName),
 		Messages: []azopenai.ChatRequestMessageClassification{
 			&azopenai.ChatRequestSystemMessage{
 				Content: Ptr(`You are PR-Reviewer, a language model designed to review a Git Pull Request (PR).

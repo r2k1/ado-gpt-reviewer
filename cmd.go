@@ -41,10 +41,10 @@ func Exec(opts Cmd) error {
 	colorYellow := "\033[33m"
 	colorCyan := "\033[36m"
 
-	if !opts.NoPrint {
-		fmt.Printf("⚙️ %s%s%s %s%s%s\n", colorCyan, opts.Dir, colorReset, colorYellow, c.String(), colorReset)
+	if opts.NoPrint {
+		fmt.Printf("⚙️ %s%s[REDACTED COMMAND]%s\n", colorCyan, opts.Dir, colorReset)
 	} else {
-		fmt.Printf("⚙️ %s[REDACTED COMMAND]%s\n", colorCyan, opts.Dir, colorReset)
+		fmt.Printf("⚙️ %s%s%s %s%s%s\n", colorCyan, opts.Dir, colorReset, colorYellow, c.String(), colorReset)
 	}
 	err := c.Run()
 	if err != nil {
