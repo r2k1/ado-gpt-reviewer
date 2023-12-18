@@ -207,7 +207,7 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 	if err != nil {
 		comment = fmt.Sprintf("ERROR: %s", err)
 	} else {
-		comment = fmt.Sprintf("WARNING: GPT AUTO REVIEWER TEST\n\nIt's automatic review, don't take it serious\n\n%s", review)
+		comment = review
 	}
 
 	_, err = r.ado.CreateComment(ctx, git.CreateCommentArgs{
