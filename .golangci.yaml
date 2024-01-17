@@ -1,0 +1,28 @@
+run:
+  timeout: 3m
+linters:
+  presets:
+    - error
+    - bugs
+    - metalinter
+    - performance
+    - complexity
+    - unused
+  disable:
+    - goerr113
+    - scopelint
+    - funlen
+    - deadcode
+    - revive
+    - testifylint
+linters-settings:
+  gocritic:
+    disabled-checks:
+      - commentFormatting
+issues:
+  exclude-rules:
+    - path: (.+)_test.go
+      linters:
+        - cyclop
+        - wrapcheck
+        - maintidx

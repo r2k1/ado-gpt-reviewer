@@ -12,9 +12,7 @@ type Cmd struct {
 	Dir     string
 	Name    string
 	Args    []string
-	Stdin   io.Reader
 	Stdout  io.Writer
-	Stderr  io.Writer
 	NoPrint bool
 }
 
@@ -27,14 +25,6 @@ func Exec(opts Cmd) error {
 		c.Stdout = os.Stdout
 	} else {
 		c.Stdout = opts.Stdout
-	}
-	if opts.Stderr == nil {
-		c.Stderr = os.Stderr
-	} else {
-		c.Stderr = opts.Stderr
-	}
-	if opts.Stdin != nil {
-		c.Stdin = opts.Stdin
 	}
 
 	colorReset := "\033[0m"

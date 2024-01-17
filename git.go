@@ -13,6 +13,11 @@ type Git struct {
 	Dir     string
 }
 
+type IGit interface {
+	Sync() error
+	Diff(targetBranch, sourceSHA string) (string, error)
+}
+
 func (g *Git) Sync() error {
 	if err := os.MkdirAll(g.Dir, 0755); err != nil {
 		return fmt.Errorf("error creating directory: %w", err)

@@ -50,7 +50,8 @@ func do(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return reviewer.ReviewAll(ctx)
+	_, err = reviewer.ReviewAll(ctx)
+	return err
 }
 
 func NewReviewer(ctx context.Context, cfg Config) (*Reviewer, error) {
@@ -101,23 +102,24 @@ func Ptr[T any](value T) *T {
 type Reviewer struct {
 	ai                *OpenAI
 	ado               git.Client
-	git               *Git
+	git               IGit
 	adoRepositoryName *string
 	adoProjectName    *string
 	adoReviewerUUID   *uuid.UUID
 }
 
-func (r *Reviewer) ReviewAll(ctx context.Context) error {
+func (r *Reviewer) ReviewAll(ctx context.Context) (int, error) {
 	if err := r.git.Sync(); err != nil {
-		return err
+		return 0, fmt.Errorf("syncing git repo: %w", err)
 	}
 	prs, err := r.fetchPRs(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if len(prs) == 0 {
-		return nil
+		return 0, nil
 	}
+	reviewed := 0
 	for _, pr := range prs {
 		// get id of a thread to post a comment
 		tid, err := r.reviewThreadID(ctx, pr.PullRequestId)
@@ -125,17 +127,18 @@ func (r *Reviewer) ReviewAll(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if tid == nil {
 			continue
 		}
 		err = r.reviewPR(ctx, pr.PullRequestId, tid)
 		if err != nil {
-			return err
+			return 0, err
 		}
+		reviewed++
 	}
-	return nil
+	return reviewed, nil
 }
 
 // fetchPRs returns all active PRs for a reviewer
@@ -195,7 +198,7 @@ func (r *Reviewer) reviewPR(ctx context.Context, prID *int, threadID *int) error
 
 	diff, err := r.git.Diff(target, *commitID)
 	if err != nil {
-		return err
+		return fmt.Errorf("getting diff: %w", err)
 	}
 	review, err := r.ai.Review(ctx, ReviewPRRequest{
 		Title:       PtrToString(prDetails.Title),
